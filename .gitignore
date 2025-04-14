@@ -1,0 +1,53 @@
+# 🔥 Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# 🧪 Unit test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 🛠 Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 🧠 Virtual environment
+.venv/
+env/
+venv/
+ENV/
+
+# 📦 IDEs
+.vscode/
+.idea/
+
+# 🧾 Logs & dumps
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# 📈 Models, output, temp data
+models/
+checkpoints/
+runs/
+*.ckpt
+*.onnx
+*.wav
+*.pcm
+
+# 🤫 Secrets (optional)
+.env
+.env.*
+
+# 📦 Package manager
+node_modules/
+package-lock.json
+
+# 📁 Sync folders (if you're syncing anything)
+sync/
