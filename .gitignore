@@ -51,3 +51,4 @@ package-lock.json
 
 # 📁 Sync folders (if you're syncing anything)
 sync/
+node_audio_listener/node_modules/
