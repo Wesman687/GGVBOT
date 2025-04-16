@@ -52,7 +52,6 @@ async def handle_ws_connection(websocket):
                 audio_bytes = base64.b64decode(data["audio"])
                 speaker_name = data["user"]
                 add_audio_chunk(speaker_name, audio_bytes)
-                print(f"🕡 Receiving audio from {speaker_name} (buffer: {len(user_buffers[speaker_name])} bytes)")
             except Exception as e:
                 print(f"⚠️ Error in WebSocket callback: {e}")
     except websockets.exceptions.ConnectionClosed:

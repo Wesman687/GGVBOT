@@ -1,18 +1,12 @@
 import discord
 import asyncio
 import os
-
 from discord.ext import commands
-
-from app.transcribe.transcriber import custom_callback
-from lt_app.audio import discord_callback
-from lt_app.transcriber import transcribe_audio
-import lt_app.config as config
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 859289210765443112
-VC_CHANNEL_ID = 860556245772927026
+VC_CHANNEL_ID = 859289210765443117
 
 intents = discord.Intents.default()
 intents.voice_states = True
@@ -61,3 +55,6 @@ async def leave(ctx):
 
 async def start_discord_bot():
     await bot.start(TOKEN)
+    
+async def stop_discord_bot():
+    await bot.close()
