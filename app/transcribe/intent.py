@@ -30,7 +30,7 @@ async def detect_high_level_intent(text: str) -> dict:
             "coords": coords,
             "direction": direction
         }
-    if "ocean boss" in lowered or "sea boss" in lowered:
+    if "ocean boss" in lowered or "sea boss" in lowered or "ocean" in lowered or "boss" in lowered:
         return {
             "intent": "ocean_boss",
             "coords": coords,

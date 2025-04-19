@@ -6,6 +6,7 @@ from app.transcribe.other_handlers import handle_ocean_boss, retry_ocean_boss
 from app.transcribe.panic_handlers import handle_active_panic, handle_stop_panic, resolve_and_handle_coord_panic, resolve_and_handle_dungeon_panic
 from app.transcribe.whisper_modal import transcribe_audio_buffer
 from app.utils.helpers import normalize_transcript
+from app.utils.jarvis import heard_jarvis
 from app.websocket import pop_audio_buffer, send_speak_command, user_buffers
 from app.state import user_context
 
@@ -87,9 +88,6 @@ async def transcribe_and_check_command(audio_bytes, user, fallback_intent=None, 
     if intent in ["dungeon_panic"]:
         return await resolve_and_handle_dungeon_panic(user, text, dungeon, level), "silent"
 
-    if intent == "greet":
-        await send_speak_command(user, "Hi, I'm Jarvis. How may I help you?")
-        return True, "responded"
 
     print(f"🗑️ No actionable intent detected from {user}. Full result: {result}")
     return False, "silent"
@@ -101,17 +99,39 @@ def clear_retry_state(user_id, retry_state, jarvis_watch, jarvis_hold_until):
     jarvis_watch[user_id] = asyncio.get_event_loop().time()  # ← prime it immediately
     jarvis_hold_until[user_id] = jarvis_watch[user_id] + HOLD_BUFFER_TIME
 
-def should_finalize_buffer(user_id, now, jarvis_watch, jarvis_timeout, jarvis_hold_until, buffer):
-    # If we're still within hold window, don't finalize
+def should_finalize_buffer(user_id, now, jarvis_watch, jarvis_timeout, jarvis_hold_until, buffer, retry_state):
     if user_id in jarvis_hold_until and now < jarvis_hold_until[user_id]:
         return False
 
-    # Finalize only if buffer has enough speech *after* hold
+    # 🔥 Shorter buffer size if retrying
+    min_buffer_len = 96000 if user_id in retry_state else 160000
+
+    # 🔥 If retry cooldown is active, block finalization
+    retry = retry_state.get(user_id)
+    if retry and "cooldown_until" in retry and now < retry["cooldown_until"]:
+        return False
+
     return (
-        len(buffer) > 160000 and (  # ~2s of audio after wake word
-        user_id not in jarvis_watch or
-        (user_id in jarvis_watch and now - jarvis_watch[user_id] > jarvis_timeout)
-    ))
+        len(buffer) > min_buffer_len and (
+            user_id not in jarvis_watch or
+            (user_id in jarvis_watch and now - jarvis_watch[user_id] > jarvis_timeout)
+        )
+    )
+
+def fade_in_audio(pcm_data: bytes, duration_ms: int = 200, sample_rate: int = 48000) -> bytes:
+    """Apply a linear fade-in to raw 16-bit PCM audio."""
+    import numpy as np
+
+    samples = np.frombuffer(pcm_data, dtype=np.int16)
+
+    fade_samples = int(sample_rate * (duration_ms / 1000.0))
+    fade_samples = min(fade_samples, len(samples))
+
+    fade_curve = np.linspace(0, 1, fade_samples)
+
+    samples[:fade_samples] = (samples[:fade_samples] * fade_curve).astype(np.int16)
+
+    return samples.tobytes()
 
 def should_wait_for_retry(user_id, now, retry_state):
     retry = retry_state.get(user_id)
@@ -140,7 +160,8 @@ async def handle_retry_logic(user_id, now, success, speech_status, retry_state, 
             "attempts": 1,
             "started_at": now,
             "next_retry": now + delay,
-            "intent": user_context[user_id].get("last_intent")
+            "intent": user_context[user_id].get("last_intent"),
+            "cooldown_until": now + 0.5  # 🔥 Add 0.5s cooldown
         }
     else:
         elapsed = now - retry["started_at"]
@@ -167,37 +188,36 @@ async def monitor_silence():
                 continue
             processing_users.add(user_id)
 
-            buffer = user_buffers.get(user_id, b"")
-            if len(buffer) < 96000:
+            try:
+                buffer = user_buffers.get(user_id, b"")
+                if len(buffer) < 96000:
+                    continue
+
+                # 🔍 Check for "Jarvis"
+                if len(buffer) >= 144000:
+                    preview = await transcribe_audio_buffer(buffer[-144000:])
+                    if heard_jarvis(preview):
+                        print(f"👁️ Heard 'Jarvis' early from {user_id}, extending buffer...")
+                        jarvis_watch[user_id] = now
+                        jarvis_hold_until[user_id] = now + HOLD_BUFFER_TIME
+                        retry_state.pop(user_id, None)
+
+                if should_wait_for_retry(user_id, now, retry_state):
+                    continue
+
+                if user_id not in jarvis_watch and user_id not in retry_state:
+                    continue
+
+                if should_finalize_buffer(user_id, now, jarvis_watch, jarvis_timeout, jarvis_hold_until, buffer, retry_state):
+                    buffer = pop_audio_buffer(user_id)
+                    if buffer:
+                        buffer = fade_in_audio(buffer)
+                        fallback_intent = retry_state.get(user_id, {}).get("intent")
+                        success, speech_status = await handle_transcription(user_id, buffer, fallback_intent)
+                        await handle_retry_logic(user_id, now, success, speech_status, retry_state, jarvis_watch, jarvis_hold_until)
+
+            finally:
                 processing_users.discard(user_id)
-                continue
-
-            # 🔍 Check for "Jarvis"
-            if len(buffer) >= 144000:
-                preview = await transcribe_audio_buffer(buffer[-144000:])
-                if "jarvis" in preview.lower():
-                    print(f"👁️ Heard 'Jarvis' early from {user_id}, extending buffer...")
-                    jarvis_watch[user_id] = now
-                    jarvis_hold_until[user_id] = now + HOLD_BUFFER_TIME
-                    retry_state.pop(user_id, None)
-
-            if should_wait_for_retry(user_id, now, retry_state):
-                processing_users.discard(user_id)
-                continue
-
-            # 🔒 Ensure we don't process users without a wake word or retry
-            if user_id not in jarvis_watch and user_id not in retry_state:
-                processing_users.discard(user_id)
-                continue
-
-            if should_finalize_buffer(user_id, now, jarvis_watch, jarvis_timeout, jarvis_hold_until, buffer):
-                buffer = pop_audio_buffer(user_id)
-                if buffer:
-                    fallback_intent = retry_state.get(user_id, {}).get("intent")
-                    success, speech_status = await handle_transcription(user_id, buffer, fallback_intent)
-                    await handle_retry_logic(user_id, now, success, speech_status, retry_state, jarvis_watch, jarvis_hold_until)
-
-            processing_users.discard(user_id)
 
         await asyncio.sleep(1)
 

@@ -20,7 +20,7 @@ async def handle_ocean_boss(user, text):
             encoded = base64.b64encode("␟".join(parts).encode("utf-8")).decode("utf-8")
 
             await send_irc_message(f"🌊 Ocean Boss sighted at {coords}!")
-            await send_irc_message(f"`{encoded}`")
+            await send_irc_message(f"{encoded}")
             return True, "silent"
         except Exception as e:
             await send_irc_message(f"❌ Error encoding boss coords: {e}")

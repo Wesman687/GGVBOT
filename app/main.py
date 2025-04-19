@@ -6,8 +6,6 @@ import os
 
 from app.transcribe.transcriber import start_transcriber_loop
 from app.websocket import start_ws_server
-from lt_app.transcriber import transcribe_audio
-import lt_app.config as config
 from app.irc.irc_bot import connect_irc, writer as irc_writer  # 👈
 from app.websocket import ws_clients 
 from app.discord_module.discord_bot import start_discord_bot, stop_discord_bot
@@ -60,7 +58,6 @@ async def shutdown():
 
 async def main():
     global ws_server
-    config.RECORDING = True
     start_node_listener()
     try:
         loop = asyncio.get_running_loop()

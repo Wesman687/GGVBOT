@@ -4,6 +4,7 @@ import asyncio
 import base64
 import re
 
+from app.transcribe.whisper_modal import force_use_base_model, force_use_small_model
 from app.utils.coords import validate_coords
 from app.state import user_context
 
@@ -99,6 +100,18 @@ async def handle_incoming_irc():
             new_coords = f"{x} {y}"
             direction = update_match.group(5)
             await update_coord_panic(target_user, new_coords, direction)
+            
+        force_model_match = re.match(r":(\w+)!.*PRIVMSG.*?:!(forcebase|forcesmall)", decoded)
+        if force_model_match:
+            requester = force_model_match.group(1)
+            command = force_model_match.group(2)
+
+            if command == "forcebase":
+                force_use_base_model()
+                await send_irc_message(f"🛠️ {requester} manually forced Whisper model: base.en")
+            elif command == "forcesmall":
+                force_use_small_model()
+                await send_irc_message(f"🛠️ {requester} manually forced Whisper model: small.en")
 
 async def send_irc_message(message: str):
     global writer
