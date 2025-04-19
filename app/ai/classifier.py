@@ -30,13 +30,13 @@ Only include the fields that match the intent. Do not add explanations or any ex
 Examples:
 
 "Jarvis, help! We're under attack at 3220 2140 moving east"
-→ {"intent": "coord_panic", "coords": "3220 2140", "direction": "east"}
+→ {{"intent": "coord_panic", "coords": "3220 2140", "direction": "east"}}
 
 "Stop panic Jarvis"
-→ {"intent": "stop_panic"}
+→ {{"intent": "stop_panic"}}
 
 "Red alert in Pulma level three"
-→ {"intent": "red_alert", "dungeon": "Pulma", "level": 3}
+→ {{"intent": "red_alert", "dungeon": "Pulma", "level": 3}}
 
 Transcript: "{text.strip()}"
 JSON:
@@ -59,3 +59,26 @@ JSON:
         print(f"⚠️ LLM intent+extraction failed: {e}")
 
     return {"intent": "unknown"}
+
+
+async def extract_coordinates_with_llm(text: str) -> str | None:
+    prompt = f"""
+Extract the two coordinate numbers (e.g., "3400 2500") from this user message. 
+Return ONLY the two numbers separated by a space, nothing else.
+
+Message: "{text.strip()}"
+Coords:
+"""
+    try:
+        # response = run_llama4_inference(prompt)
+        # coords = response["message"]["content"].strip()
+        response = await asyncio.to_thread(ollama.chat, model="mistral:7b-instruct", messages=[
+            {"role": "user", "content": prompt}
+        ])
+        coords = response["message"]["content"]   
+        print(f"[LLM Coord Extract] 📍 Got: {coords}")
+        if re.match(r"^\d{3,4} \d{3,4}$", coords):
+            return coords
+    except Exception as e:
+        print(f"⚠️ LLM coordinate extraction failed: {e}")
+    return None

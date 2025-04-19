@@ -1,55 +1,77 @@
 
+from datetime import datetime
+import difflib
 import re
 
 from app.ai.dungeon_llm import extract_dungeon_with_llm
+from app.config import COMMON_MISHEARINGS, FLATTENED_DUNGEONS, ORDINAL_LEVELS
 
-# Canonical dungeon list with aliases
-DUNGEON_ALIASES = {
-    "Ossuary": ["ossuary", "ossuray"],
-    "Inferno": ["inferno", "infero"],
-    "Darkmire": ["darkmire", "dm"],
-    "Aegis": ["aegis"],
-    "Cavernam": ["cavernam", "cav"],
-    "Kraul Hive": ["kraul hive", "kraul"],
-    "Mount Petram": ["mount petram", "mount p", "mount"],
-    "Nusero": ["nusero"],
-    "Pulma": ["pulma"],
-    "ShadowSpire Cathedral": ["shadowspire cathedral", "ssc"],
-    "The Mausoleum": ["the mausoleum", "maus"],
-    "Time Dungeon": ["time dungeon", "time"]
-}
 
-ORDINAL_LEVELS = {
-    "first": "1", "second": "2", "third": "3", "fourth": "4",
-    "fifth": "5", "sixth": "6", "seventh": "7", "eighth": "8",
-}
+# Build flat lookup
+MISHEARING_LOOKUP = {}
+for correct_word, wrongs in COMMON_MISHEARINGS.items():
+    for wrong in wrongs:
+        MISHEARING_LOOKUP[wrong] = correct_word
 
-# Flatten alias list for reverse lookup
-FLATTENED_DUNGEONS = {alias: canon for canon, aliases in DUNGEON_ALIASES.items() for alias in aliases}
+def log_correction(original: str, corrected: str, score: float):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open("panicbot_correction_log.txt", "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] '{original}' → '{corrected}' (score: {score:.2f})\n")
 
-def fuzzy_match_dungeon(raw: str) -> str | None:
-    raw = raw.lower().strip()
-    for canon, aliases in DUNGEON_ALIASES.items():
-        if any(alias in raw for alias in aliases):
-            return canon
-    return None
+def fuzzy_autocorrect(text: str) -> str:
+    text = text.lower()
+    words = re.findall(r'\b[a-zA-Z]+\b', text)
+    corrected_words = []
 
-def extract_dungeon_and_level(text: str) -> tuple[str, str] | tuple[None, None]:
+    all_mishears = list(MISHEARING_LOOKUP.keys())
+
+    for word in words:
+        # ✅ Exact match
+        if word in MISHEARING_LOOKUP:
+            corrected_words.append(MISHEARING_LOOKUP[word])
+            continue
+
+        # 🔍 Fuzzy fallback
+        close = difflib.get_close_matches(word, all_mishears, n=1, cutoff=0.75)
+        if close:
+            corrected = MISHEARING_LOOKUP[close[0]]
+            score = difflib.SequenceMatcher(None, word, close[0]).ratio()
+            corrected_words.append(corrected)
+            log_correction(word, corrected, score)
+        else:
+            corrected_words.append(word)  # No change
+
+    return " ".join(corrected_words)
+
+
+
+def extract_dungeon_and_level(text: str):
     normalized = text.lower()
+    words = re.findall(r"[a-zA-Z]+", normalized)
+    joined = " ".join(words)
 
     matched_dungeon = None
-    for canon, variants in DUNGEON_ALIASES.items():
-        if any(alias in normalized for alias in variants):
-            matched_dungeon = canon
-            break
+    all_aliases = list(FLATTENED_DUNGEONS.keys())
 
+    # 🔥 Try full sentence match first (stricter)
+    close = difflib.get_close_matches(joined, all_aliases, n=1, cutoff=0.75)
+    if close:
+        matched_dungeon = FLATTENED_DUNGEONS[close[0]]
+
+    # 🔥 If no full match, fallback to per-word
+    if not matched_dungeon:
+        for word in words:
+            close = difflib.get_close_matches(word, all_aliases, n=1, cutoff=0.8)
+            if close:
+                matched_dungeon = FLATTENED_DUNGEONS[close[0]]
+                break
+
+    # Parse level
     level = None
-    # Try to find numeric level
     level_match = re.search(r"level\s*(\d)", normalized)
     if level_match:
         level = level_match.group(1)
     else:
-        # Try to find ordinal level
         for word, digit in ORDINAL_LEVELS.items():
             if word in normalized:
                 level = digit
@@ -60,10 +82,9 @@ def extract_dungeon_and_level(text: str) -> tuple[str, str] | tuple[None, None]:
 
     return None, None
 
-
-
 async def get_dungeon_from_text(text: str) -> tuple[str, str] | None:
-    dungeon, level = extract_dungeon_and_level(text)
+    corrected_text = fuzzy_autocorrect(text)
+    dungeon, level = extract_dungeon_and_level(corrected_text)
     if dungeon and level:
         return dungeon, level
 

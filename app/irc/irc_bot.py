@@ -1,6 +1,7 @@
 # app/irc/irc_bot.py
 
 import asyncio
+import base64
 import re
 
 from app.utils.coords import validate_coords
@@ -50,6 +51,25 @@ async def handle_incoming_irc():
             writer.write(f"{pong}\r\n".encode())
             await writer.drain()
             print(f"[IRC] → {pong}")
+        
+        ocean_match = re.match(r":(\w+)!.*PRIVMSG.*?:!ocean\s+(\d{3,4})[\s,]+(\d{3,4})", decoded)
+        if ocean_match:
+            requester = ocean_match.group(1)
+            x = ocean_match.group(2)
+            y = ocean_match.group(3)
+
+            try:
+                raw = "#uooutlands␟vendorlocation␟Ocean_Boss␟new item name␟0␟0␟11331355␟0x449BAB01␟1322683753"
+                parts = raw.split("␟")
+                parts[4] = x
+                parts[5] = y
+                updated = "␟".join(parts)
+                encoded = base64.b64encode(updated.encode("utf-8")).decode("utf-8")
+
+                await send_irc_message(f"🌊 Ocean Boss sighted at {x} {y}!")
+                await send_irc_message(f"{encoded}")
+            except Exception as e:
+                await send_irc_message(f"❌ Error generating ocean coords: {e}")
 
         # Match: !panic [user] <x> <y> [direction]
         panic_match = re.match(r":(\w+)!.*PRIVMSG.*?:!panic(?:\s+(\w+))?\s+(\d{1,4})[\s,]+(\d{1,4})(?:\s+(\w+))?", decoded)
@@ -119,19 +139,23 @@ async def start_coord_panic(user: str, coords: str, direction: str = None):
     msg = f"🚨 PANIC ACTIVATED at {coords} by {user}"
     if direction:
         msg += f" (moving {direction})"
+        user_context[user]["panic_direction"] = direction
     msg += " 🚨"
+    user_context[user]["panic_type"] = "coords"
+    user_context[user]["panic_coords"] = coords
+    
     await send_irc_message(msg)
 
     async def spam_loop():
         for _ in range(20):
-            alert = f"⚠️ {user} is panicking at {coords}"
-            if direction:
-                alert += f" (moving {direction})"
-            await send_irc_message(alert)
+            live_coords = user_context[user].get("panic_coords")
+            live_direction = user_context[user].get("panic_direction")
+            msg = f"⚠️ {user} is panicking at {live_coords}"
+            if live_direction:
+                msg += f" (moving {live_direction})"
+            await send_irc_message(msg)
             await asyncio.sleep(15)
 
-    user_context[user]["panic_type"] = "coords"
-    user_context[user]["panic_coords"] = coords
     user_panic_tasks[user] = asyncio.create_task(spam_loop())
 
 
@@ -144,7 +168,8 @@ async def start_dungeon_panic(user: str, dungeon_label: str):
 
     async def spam_loop():
         for _ in range(20):
-            await send_irc_message(f"⚠️ {user} is panicking in {dungeon_label}!")
+            live_dungeon = user_context[user].get("panic_dungeon")
+            await send_irc_message(f"⚠️ {user} is panicking in {live_dungeon}!")
             await asyncio.sleep(15)
 
     user_context[user]["panic_type"] = "dungeon"
@@ -163,7 +188,6 @@ async def stop_panic(user: str):
     user_context[user]["panic_dungeon"] = None
 
 
-# 📍 Update Coord Panic
 async def update_coord_panic(user: str, coords: str, direction: str = None):
     if user not in user_panic_tasks:
         await start_coord_panic(user, coords, direction)
@@ -174,7 +198,9 @@ async def update_coord_panic(user: str, coords: str, direction: str = None):
         msg += f" (moving {direction})"
     await send_irc_message(msg)
 
+    # ✅ Ensure both coords AND direction are updated in state
     user_context[user]["panic_coords"] = coords
+    user_context[user]["panic_direction"] = direction
 
 
 # 🏰 Update Dungeon Panic

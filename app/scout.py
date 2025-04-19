@@ -1,9 +1,9 @@
-import dotenv
+import os
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # Step 1: Authenticate with Hugging Face
-HUGGING_FACES = dotenv.get("HUGGING_FACES")
+HUGGING_FACES = os.getenv("HUGGING_FACES")
 login(HUGGING_FACES)
 
 # Step 2: Load the tokenizer and model
