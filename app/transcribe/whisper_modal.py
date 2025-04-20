@@ -146,8 +146,9 @@ def save_pcm_to_wav(pcm_data: bytes, filename: str, rate: int = 48000):
         wf.setframerate(rate)
         wf.writeframes(pcm_data)
 
+MIN_WORDS = 2
+MIN_CONFIDENCE = -1.0  # log probability (closer to 0 = higher confidence)
 
-# Transcription
 async def transcribe_audio_buffer(pcm_data: bytes) -> str:
     global current_model, current_model_size
     if current_model is None:
@@ -159,12 +160,33 @@ async def transcribe_audio_buffer(pcm_data: bytes) -> str:
         try:
             initial_prompt = build_initial_prompt()
             segments, _ = current_model.transcribe(temp_wav.name, initial_prompt=initial_prompt)
-            transcript = " ".join(segment.text for segment in segments).strip()
+
+            cleaned_segments = []
+            for segment in segments:
+                text = segment.text.strip()
+                if not text:
+                    continue
+
+                confidence = getattr(segment, "avg_logprob", 0)
+
+                # Filter rule:
+                word_count = len(text.split())
+                if word_count >= 2 or confidence > -0.4:
+                    cleaned_segments.append(text)
+                else:
+                    print(f"🧹 Ignored low-quality segment: '{text}' (confidence: {confidence:.2f})")
+
+            transcript = " ".join(cleaned_segments).strip()
+
+            # 🚨 Additional high-level check
+            if not transcript:
+                return ""
+
             print(f"[Transcription:{current_model_size}] {transcript}")
             return transcript
+
         except Exception as e:
             print(f"❌ Whisper error while using {current_model_size}: {e}")
-            # On error, fallback to smaller model
             if current_model_size == "base.en":
                 print("⚡ Downgrading to small.en due to transcription error.")
                 unload_current_model()

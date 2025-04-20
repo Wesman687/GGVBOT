@@ -29,6 +29,7 @@ def normalize_transcript(text: str) -> str:
     # Lowercase junk patterns
     junk_phrases = [
         "we'll see you in the next video",
+        "Good to do win!",
         "okay um let's see here",
         "hello was that going on",
         "okay um",

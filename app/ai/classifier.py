@@ -13,7 +13,7 @@ You are Jarvis, a voice assistant for the game Ultima Online: Outlands.
 
 Your job is to analyze player speech and return a JSON object with the following format:
 
-- "intent": one of ["coord_panic", "dungeon_panic", "red_alert", "stop_panic", "greet", "unknown"]
+- "intent": one of ["coord_panic", "dungeon_panic", "red_alert", "stop_panic", "greet", "announce_event", "cancel_event", "start_event", "unknown"]
 
 Additionally, include:
 
@@ -24,6 +24,10 @@ Additionally, include:
 - If intent is "dungeon_panic" or "red_alert":
     - "dungeon": name of the dungeon from this list: Ossuary, Inferno, Darkmire, Aegis, Cavernam, Kraul Hive, Mount Petram, Nusero, Pulma, ShadowSpire Cathedral, The Mausoleum, Time Dungeon
     - "level": a number 1–8 if mentioned (can be written like "third" or "level three")
+
+- If intent is "announce_event":
+    - "event_name": short name of the event (e.g., "Ocean Boss", "Corpse Creek")
+    - "time_until_start": how many minutes until the event starts (e.g., "10 minutes")
 
 Only include the fields that match the intent. Do not add explanations or any extra content.
 
@@ -38,6 +42,9 @@ Examples:
 "Red alert in Pulma level three"
 → {{"intent": "red_alert", "dungeon": "Pulma", "level": 3}}
 
+"Jarvis announce Ocean Boss happening in 10 minutes"
+→ {{"intent": "announce_event", "event_name": "Ocean Boss", "time_until_start": "10 minutes"}}
+
 Transcript: "{text.strip()}"
 JSON:
 """
@@ -47,7 +54,6 @@ JSON:
             {"role": "user", "content": prompt}
         ])
         raw = response["message"]["content"]    
-        # raw = await asyncio.to_thread(run_llama4_inference, prompt)
         print(f"[LLM JSON Intent] 📦 Raw: {raw}")
 
         # Extract valid JSON (even from noisy output)

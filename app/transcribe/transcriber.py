@@ -183,6 +183,7 @@ async def monitor_silence():
     while True:
         now = asyncio.get_event_loop().time()
         await check_event_trigger()
+
         for user_id in list(user_buffers.keys()):
             if user_id in processing_users:
                 continue
@@ -193,14 +194,16 @@ async def monitor_silence():
                 if len(buffer) < 96000:
                     continue
 
-                # 🔍 Check for "Jarvis"
+                # 🔍 Check for "Jarvis" (smarter now)
                 if len(buffer) >= 144000:
                     preview = await transcribe_audio_buffer(buffer[-144000:])
-                    if heard_jarvis(preview):
+                    if preview and heard_jarvis(preview):
                         print(f"👁️ Heard 'Jarvis' early from {user_id}, extending buffer...")
                         jarvis_watch[user_id] = now
                         jarvis_hold_until[user_id] = now + HOLD_BUFFER_TIME
                         retry_state.pop(user_id, None)
+                    elif not preview.strip():
+                        print(f"👂 Ignored empty preview for {user_id}")
 
                 if should_wait_for_retry(user_id, now, retry_state):
                     continue
@@ -212,14 +215,29 @@ async def monitor_silence():
                     buffer = pop_audio_buffer(user_id)
                     if buffer:
                         buffer = fade_in_audio(buffer)
+
+                        # ✅ Always clear jarvis_watch/jarvis_hold states immediately after finalizing
+                        jarvis_watch.pop(user_id, None)
+                        jarvis_hold_until.pop(user_id, None)
+
                         fallback_intent = retry_state.get(user_id, {}).get("intent")
                         success, speech_status = await handle_transcription(user_id, buffer, fallback_intent)
-                        await handle_retry_logic(user_id, now, success, speech_status, retry_state, jarvis_watch, jarvis_hold_until)
+
+                        # ✅ Always clear retry_state immediately if transcription succeeded or nothing important
+                        if success is None or success:
+                            retry_state.pop(user_id, None)
+                        else:
+                            await handle_retry_logic(user_id, now, success, speech_status, retry_state, jarvis_watch, jarvis_hold_until)
+
+
+            except Exception as e:
+                print(f"⚠️ Monitor loop error for {user_id}: {e}")
 
             finally:
                 processing_users.discard(user_id)
 
         await asyncio.sleep(1)
+
 
 
 async def start_transcriber_loop():
